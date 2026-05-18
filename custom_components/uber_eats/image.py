@@ -92,5 +92,5 @@ class UberEatsImage(ImageEntity):
                             return feed['courier'][0]['iconUrl']
         except:
             pass
-        return "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Unknown_person.jpg/217px-Unknown_person.jpg"
+        return None
 
