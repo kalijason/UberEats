@@ -30,8 +30,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     """Set up a Uber Eats entry."""
 
     account = _get_config_value(config_entry, CONF_ACCOUNT, "")
-    cookie1 = _get_config_value(config_entry, CONF_COOKIE, "")
-    cookie2 = _get_config_value(config_entry, f"{CONF_COOKIE}2", "")
+    cookie = _get_config_value(config_entry, CONF_COOKIE, "")
     localcode = _get_config_value(config_entry, CONF_LOCALCODE, DEFAULT_LOCALCODE)
 
     # migrate data (also after first setup) to options
@@ -40,9 +39,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
                                                options=config_entry.data)
 
     session = async_get_clientsession(hass)
-    cookies = [cookie1, cookie2]
 
-    uber_eats_data = UberEatsData(hass, session, account, cookies, localcode)
+    uber_eats_data = UberEatsData(hass, session, account, cookie, localcode)
 
     uber_eats_coordinator = DataUpdateCoordinator(
         hass,

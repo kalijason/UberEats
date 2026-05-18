@@ -11,8 +11,7 @@
             "user": {
                 "data": {
                     "account": "\u5e33\u865f",
-                    "cookie": "Cookie1",
-                    "cookie2": "Cookie2",
+                    "cookie": "Cookie",
                     "localcode": "\u570b\u5bb6/\u5730\u5340\u78bc"
                 },
                 "description": "\u8acb\u8f38\u5165\u4f60\u7684 Uber Eats \u9023\u7dda\u8cc7\u8a0a."
@@ -24,8 +23,7 @@
             "init": {
                 "title": "Uber Eats ",
                 "data": {
-                    "cookie": "Cookie1",
-                    "cookie2": "Cookie2",
+                    "cookie": "Cookie",
                     "localcode": "\u570b\u5bb6/\u5730\u5340\u78bc"
                 }
             }
