@@ -47,7 +47,6 @@ async def async_setup_entry(
         account = config.options[CONF_ACCOUNT]
 
     data = hass.data[DOMAIN][config.entry_id][UBER_EATS_DATA]
-    data.expired = False
     data.ordered = False
     coordinator = hass.data[DOMAIN][config.entry_id][UBER_EATS_COORDINATOR]
     device = UberEatsSensor(account, data, coordinator)

@@ -1,20 +1,29 @@
 {
     "config": {
         "abort": {
-            "already_configured": "Uber Eats \u5df2\u7d93\u8a2d\u5b9a"
+            "already_configured": "Uber Eats 已經設定",
+            "reauth_successful": "Uber Eats 連線已重新驗證"
         },
         "error": {
-            "connection_error": "\u7121\u6cd5\u9023\u63a5 Uber Eats."
+            "cannot_connect": "無法連線 Uber Eats，cookie 可能已失效。",
+            "unknown": "未預期的錯誤"
         },
         "flow_title": "Uber Eats: {name}",
         "step": {
             "user": {
                 "data": {
-                    "account": "\u5e33\u865f",
+                    "account": "帳號",
                     "cookie": "Cookie",
-                    "localcode": "\u570b\u5bb6/\u5730\u5340\u78bc"
+                    "localcode": "國家/地區碼"
                 },
-                "description": "\u8acb\u8f38\u5165\u4f60\u7684 Uber Eats \u9023\u7dda\u8cc7\u8a0a."
+                "description": "請輸入你的 Uber Eats 連線資訊."
+            },
+            "reauth_confirm": {
+                "title": "重新驗證 Uber Eats",
+                "description": "帳號 {account} 的 Uber Eats 連線已失效。請從瀏覽器抓取最新的 `sid` cookie 並貼到下方。",
+                "data": {
+                    "cookie": "新的 cookie"
+                }
             }
         }
     },
@@ -24,7 +33,7 @@
                 "title": "Uber Eats ",
                 "data": {
                     "cookie": "Cookie",
-                    "localcode": "\u570b\u5bb6/\u5730\u5340\u78bc"
+                    "localcode": "國家/地區碼"
                 }
             }
         }

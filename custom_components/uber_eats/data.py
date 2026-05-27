@@ -1,11 +1,15 @@
 """Common Uber Eats Data class used by both sensor and entity."""
 
+import asyncio
 import logging
 from datetime import datetime
 import json
 from http import HTTPStatus
-import requests
+
+import aiohttp
 from aiohttp.hdrs import USER_AGENT
+
+from homeassistant.exceptions import ConfigEntryAuthFailed
 
 from .const import (
     ATTR_HTTPS_RESULT,
@@ -16,6 +20,26 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _response_indicates_auth_loss(res: dict) -> bool:
+    """Decide if a HTTP-200 body actually means the session is dead.
+
+    Uber Eats returns HTTP 200 with an empty payload for an invalid `sid`
+    instead of 403, so we need a content check. An explicit `status: success`
+    is trusted even if the inner shape changes (defensive against schema
+    drift); otherwise the rule is "no `orders` key in `data` == dead".
+    """
+    if not isinstance(res, dict):
+        return True
+    if res.get("status") == "failure":
+        return True
+    if res.get("status") == "success":
+        return False
+    data = res.get("data")
+    if not isinstance(data, dict):
+        return True
+    return "orders" not in data
 
 
 class UberEatsData():
@@ -30,12 +54,12 @@ class UberEatsData():
         self._localcode = localcode
         self.orders = {}
         self.account = None
-        self.expired = False
         self.ordered = False
         self.new_order = False
         self.uri = BASE_URL
         self.orders[account] = {}
         self._last_check = datetime.now()
+        self._auth_failed = False
 
     def _parser_data(self, orders):
         """ parser data """
@@ -71,62 +95,71 @@ class UberEatsData():
             force_update = True
             self._last_check = now
 
-        if not self.expired and (self.ordered or force_update):
-            try:
-                response = await self._session.request(
-                    "POST",
-                    url=self.uri,
-                    data=json.dumps(payload),
-                    params=params,
-                    headers=headers,
-                    cookies=cookies,
-                    timeout=REQUEST_TIMEOUT
-                )
+        if not (self.ordered or force_update):
+            return self
 
-            except requests.exceptions.RequestException:
-                _LOGGER.error("Failed fetching data for %s", self._account)
-                return
-
-            if response.status == HTTPStatus.OK:
-                try:
-                    res = await response.json()
-                except:
-                    res = {"data": response.text}
-                self.orders[self._account][UBER_EATS_ORDERS] = self._parser_data(
-                    res.get('data', {})
-                )
-                if len(self.orders[self._account]) >= 1:
-                    self.orders[self._account][ATTR_HTTPS_RESULT] = HTTPStatus.OK
-                else:
-                    self.orders[self._account][ATTR_HTTPS_RESULT] = HTTPStatus.NOT_FOUND
-                self.expired = False
-                if len(self.orders[self._account][UBER_EATS_ORDERS]) >= 1:
-                    self.new_order = True
-                else:
-                    self.new_order = False
-                    self.ordered = False
-                self.account = self._account
-            elif response.status == HTTPStatus.NOT_FOUND:
-                self.orders[self._account][ATTR_HTTPS_RESULT] = HTTPStatus.NOT_FOUND
-                self.expired = True
-            else:
-                info = ""
-                self.orders[self._account][ATTR_HTTPS_RESULT] = response.status
-                if response.status == HTTPStatus.FORBIDDEN:
-                    info = " Token or Cookie is expired"
-                _LOGGER.error(
-                    "Failed fetching data for %s (HTTP Status Code = %d).%s",
-                    self._account,
-                    response.status,
-                    info
-                )
-                self.expired = True
-        elif self.expired:
-            self.orders[self._account][ATTR_HTTPS_RESULT] = 'sessions_expired'
-            _LOGGER.warning(
-                "Failed fetching data for %s (Sessions expired). "
-                "Please update the cookie via the integration options.",
-                self._account,
+        if self._auth_failed:
+            raise ConfigEntryAuthFailed(
+                f"Uber Eats session for {self._account} is awaiting reauth."
             )
+
+        try:
+            response = await self._session.request(
+                "POST",
+                url=self.uri,
+                data=json.dumps(payload),
+                params=params,
+                headers=headers,
+                cookies=cookies,
+                timeout=REQUEST_TIMEOUT
+            )
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            _LOGGER.error("Failed fetching data for %s: %s", self._account, err)
+            return self
+
+        if response.status == HTTPStatus.FORBIDDEN:
+            self.orders[self._account][ATTR_HTTPS_RESULT] = response.status
+            self._auth_failed = True
+            raise ConfigEntryAuthFailed(
+                f"Uber Eats session for {self._account} is no longer valid "
+                "(HTTP 403). Re-authenticate via the integration."
+            )
+
+        if response.status != HTTPStatus.OK:
+            self.orders[self._account][ATTR_HTTPS_RESULT] = response.status
+            _LOGGER.error(
+                "Failed fetching data for %s (HTTP Status Code = %d)",
+                self._account,
+                response.status,
+            )
+            return self
+
+        try:
+            res = await response.json()
+        except (aiohttp.ContentTypeError, json.JSONDecodeError, ValueError):
+            res = {"data": None}
+
+        if _response_indicates_auth_loss(res):
+            self.orders[self._account][ATTR_HTTPS_RESULT] = HTTPStatus.UNAUTHORIZED
+            self._auth_failed = True
+            raise ConfigEntryAuthFailed(
+                f"Uber Eats session for {self._account} returned an "
+                "unauthenticated response (HTTP 200 with no orders payload). "
+                "The `sid` cookie has likely expired silently."
+            )
+
+        self.orders[self._account][UBER_EATS_ORDERS] = self._parser_data(
+            res.get('data', {})
+        )
+        if len(self.orders[self._account]) >= 1:
+            self.orders[self._account][ATTR_HTTPS_RESULT] = HTTPStatus.OK
+        else:
+            self.orders[self._account][ATTR_HTTPS_RESULT] = HTTPStatus.NOT_FOUND
+        if len(self.orders[self._account][UBER_EATS_ORDERS]) >= 1:
+            self.new_order = True
+        else:
+            self.new_order = False
+            self.ordered = False
+        self.account = self._account
 
         return self

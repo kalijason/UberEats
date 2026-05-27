@@ -1,10 +1,11 @@
 {
     "config": {
         "abort": {
-            "already_configured": "Uber Eats is already configured"
+            "already_configured": "Uber Eats is already configured",
+            "reauth_successful": "Uber Eats session has been refreshed"
         },
         "error": {
-            "connection_error": "Can't connect to Uber Eats.",
+            "cannot_connect": "Can't connect to Uber Eats. The cookie may be invalid or expired.",
             "unknown": "Unexpected error"
         },
         "flow_title": "Uber Eats: {name}",
@@ -16,6 +17,13 @@
                     "localcode": "Local Code"
                 },
                 "description": "Please enter connection settings of your Uber Eats."
+            },
+            "reauth_confirm": {
+                "title": "Reauthenticate Uber Eats",
+                "description": "The Uber Eats session for {account} has expired. Capture a fresh `sid` cookie from your browser and paste it below.",
+                "data": {
+                    "cookie": "New cookie"
+                }
             }
         }
     },

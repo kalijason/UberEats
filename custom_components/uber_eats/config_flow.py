@@ -39,13 +39,28 @@ async def validate_input(hass: core.HomeAssistant, data):
     session = async_get_clientsession(hass)
 
     uber_eats_data = UberEatsData(hass, session, account, cookie, localcode)
-    uber_eats_data.expired = False
     uber_eats_data.ordered = True
-    await uber_eats_data.async_update_data()
+    try:
+        await uber_eats_data.async_update_data()
+    except exceptions.ConfigEntryAuthFailed as err:
+        # Surface auth failure as a form error rather than kicking the user out.
+        _LOGGER.warning("Validation failed for %s: %s", account, err)
+        raise CannotConnect() from err
     if uber_eats_data.account is None:
         raise CannotConnect()
 
     return {CONF_ACCOUNT: uber_eats_data.account}
+
+
+async def _validate_with_errors(hass, user_input):
+    """Run validate_input, returning (info_or_None, errors_dict)."""
+    try:
+        return await validate_input(hass, user_input), {}
+    except CannotConnect:
+        return None, {"base": "cannot_connect"}
+    except Exception:  # pylint: disable=broad-except
+        _LOGGER.exception("Unexpected exception")
+        return None, {"base": "unknown"}
 
 class UberEatsFlowHandler(ConfigFlow, domain=DOMAIN):
     """Handle a Uber Eats config flow."""
@@ -58,6 +73,7 @@ class UberEatsFlowHandler(ConfigFlow, domain=DOMAIN):
         self._account: Optional[str] = None
         self._cookie: Optional[str] = None
         self._localcode: Optional[str] = None
+        self._reauth_entry: Optional[ConfigEntry] = None
 
     @staticmethod
     @callback
@@ -77,14 +93,8 @@ class UberEatsFlowHandler(ConfigFlow, domain=DOMAIN):
             )
             self._abort_if_unique_id_configured()
 
-            try:
-                info = await validate_input(self.hass, user_input)
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception")
-                errors["base"] = "unknown"
-            else:
+            info, errors = await _validate_with_errors(self.hass, user_input)
+            if info is not None:
                 user_input[CONF_NAME] = info[CONF_ACCOUNT]
                 return self.async_create_entry(
                     title=user_input[CONF_NAME], data=user_input
@@ -104,6 +114,39 @@ class UberEatsFlowHandler(ConfigFlow, domain=DOMAIN):
             step_id="user", data_schema=data_schema, errors=errors
         )
 
+    async def async_step_reauth(self, entry_data):
+        """Handle reauth triggered by ConfigEntryAuthFailed."""
+        self._reauth_entry = self.hass.config_entries.async_get_entry(
+            self.context["entry_id"]
+        )
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input=None):
+        """Ask the user to paste a fresh `sid` cookie."""
+        errors = {}
+        existing = {**self._reauth_entry.options}
+
+        if user_input is not None:
+            merged = {**existing, CONF_COOKIE: user_input[CONF_COOKIE]}
+            info, errors = await _validate_with_errors(self.hass, merged)
+            if info is not None:
+                self.hass.config_entries.async_update_entry(
+                    self._reauth_entry, options=merged
+                )
+                await self.hass.config_entries.async_reload(
+                    self._reauth_entry.entry_id
+                )
+                return self.async_abort(reason="reauth_successful")
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema({vol.Required(CONF_COOKIE): str}),
+            description_placeholders={
+                "account": existing.get(CONF_ACCOUNT, "")
+            },
+            errors=errors,
+        )
+
     @property
     def _name(self):
         # pylint: disable=no-member
@@ -121,38 +164,29 @@ class UberEatsFlowHandler(ConfigFlow, domain=DOMAIN):
 class OptionsFlowHandler(OptionsFlow):
     # pylint: disable=too-few-public-methods
     """Handle options flow changes."""
-    _account = None
-    _cookie = None
-    _localcode = None
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
         errors = {}
+        account = self.config_entry.options.get(CONF_ACCOUNT, '')
+        cookie = self.config_entry.options.get(CONF_COOKIE, '')
+        localcode = self.config_entry.options.get(CONF_LOCALCODE, '')
+
         if user_input is not None:
-            user_input[CONF_ACCOUNT] = self._account
-            try:
-                info = await validate_input(self.hass, user_input)
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception")
-                errors["base"] = "unknown"
-            else:
+            user_input[CONF_ACCOUNT] = account
+            info, errors = await _validate_with_errors(self.hass, user_input)
+            if info is not None:
                 user_input[CONF_NAME] = info[CONF_ACCOUNT]
                 return self.async_create_entry(
                     title=user_input[CONF_NAME], data=user_input
                 )
 
-        self._account = self.config_entry.options.get(CONF_ACCOUNT, '')
-        self._cookie = self.config_entry.options.get(CONF_COOKIE, '')
-        self._localcode = self.config_entry.options.get(CONF_LOCALCODE, '')
-
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_COOKIE, default=self._cookie): str,
-                    vol.Required(CONF_LOCALCODE, default=self._localcode): vol.In(
+                    vol.Required(CONF_COOKIE, default=cookie): str,
+                    vol.Required(CONF_LOCALCODE, default=localcode): vol.In(
                         list(LOCALCODES.keys())
                     )
                 }

@@ -4,7 +4,6 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -56,13 +55,10 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
         UBER_EATS_COORDINATOR: uber_eats_coordinator,
         UBER_EATS_NAME: account,
     }
-    uber_eats_data.expired = False
     uber_eats_data.ordered = True
 
-    # Fetch initial data so we have data when entities subscribe
-    await uber_eats_coordinator.async_refresh()
-    if uber_eats_data.account is None:
-        raise ConfigEntryNotReady()
+    # Propagates ConfigEntryAuthFailed / ConfigEntryNotReady; async_refresh swallows them.
+    await uber_eats_coordinator.async_config_entry_first_refresh()
 
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
 
