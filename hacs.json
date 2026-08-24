@@ -4,5 +4,5 @@
     "domain": "uber_eats",
     "documentation": "https://github.com/kalijason/UberEats",
     "issue_tracker": "https://github.com/kalijason/UberEats/issues",
-    "homeassistant": "2024.1.0"
+    "homeassistant": "2024.12.0"
 }
