@@ -1,0 +1,58 @@
+#!/bin/sh
+# Commit-hygiene guard. See CONTEXT.md for the categories this enforces.
+#
+# This file is published. It deliberately contains no sensitive values: the
+# patterns identifying the maintainer's employer and internal hosts live in
+# .githooks/deny-patterns.local, which is gitignored. Anything written here is
+# public, so writing the patterns inline would re-introduce exactly what this
+# guard exists to keep out.
+#
+# Limits, stated so nobody over-trusts it: `--no-verify` bypasses this entirely,
+# and `core.hooksPath` is repo-local config that a fresh clone does not inherit.
+# This guards against accident, not intent.
+
+set -u
+
+HOOK_DIR=$(dirname "$0")
+PATTERNS="$HOOK_DIR/deny-patterns.local"
+fail=0
+
+# A credential value: `sid=` followed by enough of the cookie alphabet to be a
+# real session id. The legitimate source line f"sid={self._cookie}" cannot match,
+# because `{` is outside the character class.
+CREDENTIAL_RE='sid=[A-Za-z0-9%_.-]{20,}'
+
+staged=$(git diff --cached -U0)
+
+if printf '%s' "$staged" | grep -qE "$CREDENTIAL_RE"; then
+    echo "pre-commit: staged content matches the credential pattern." >&2
+    echo "pre-commit: inspect with  git diff --cached | grep -nE '$CREDENTIAL_RE'" >&2
+    fail=1
+fi
+
+if [ ! -r "$PATTERNS" ]; then
+    echo "pre-commit: WARNING - $PATTERNS is missing." >&2
+    echo "pre-commit: WARNING - identity and content checks are NOT running." >&2
+    echo "pre-commit: WARNING - see CONTEXT.md before trusting this commit." >&2
+else
+    author=$(git var GIT_AUTHOR_IDENT)
+    committer=$(git var GIT_COMMITTER_IDENT)
+    while IFS= read -r pat; do
+        case "$pat" in ''|\#*) continue ;; esac
+        if printf '%s' "$author" | grep -qE "$pat"; then
+            echo "pre-commit: author identity matches a denied pattern." >&2; fail=1
+        fi
+        if printf '%s' "$committer" | grep -qE "$pat"; then
+            echo "pre-commit: committer identity matches a denied pattern." >&2; fail=1
+        fi
+        if printf '%s' "$staged" | grep -qE "$pat"; then
+            echo "pre-commit: staged content matches a denied pattern." >&2; fail=1
+        fi
+    done < "$PATTERNS"
+fi
+
+if [ "$fail" -ne 0 ]; then
+    echo "pre-commit: rejected." >&2
+    exit 1
+fi
+exit 0
