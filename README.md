@@ -1,50 +1,92 @@
-<a href="https://www.buymeacoffee.com/tsunglung" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="30" width="120"></a>
+# Uber Eats for Home Assistant
 
-Home assistant support for Uber Eats
+Track your active Uber Eats order from Home Assistant — order status, courier location,
+courier photo, and the restaurant name, exposed as entities you can build automations on.
 
-[The readme in Traditional Chinese](https://github.com/tsunglung/UberEats/blob/master/README_zh-Hant.md).
+> **Use this integration at your own risk.** It talks to an undocumented Uber Eats
+> endpoint using your session cookie. The upstream API changes without notice.
 
-***User the integration by your own risk***
+[繁體中文說明](README_zh-Hant.md)
+
+## Credit
+
+This is a derivative of [**tsunglung/UberEats**](https://github.com/tsunglung/UberEats)
+by [@tsunglung](https://github.com/tsunglung), who wrote the original integration and
+everything it does well. It is MIT-licensed, and that licence and copyright carry over
+unchanged — see [LICENSE](LICENSE).
+
+This repository diverged from upstream at commit `512c57f`. Every commit up to that
+point is tsunglung's, with the original authorship and commit hashes intact, so you can
+verify the base against upstream yourself.
+
+It is maintained separately rather than as a GitHub fork. See
+[docs/adr/0001-standalone-repo-not-fork.md](docs/adr/0001-standalone-repo-not-fork.md)
+for why.
+
+## What's different in this fork
+
+| Change | Why it matters |
+|---|---|
+| **Silent session-expiry detection + reauth flow** | The Uber Eats API returns `HTTP 200` with an empty payload when the `sid` cookie expires — not a `403`. Upstream's expiry check never fires, so `binary_sensor.new_order` just stays `False` forever with no visible error. This fork inspects the response shape, raises `ConfigEntryAuthFailed`, and Home Assistant shows a re-authentication prompt where you paste a fresh cookie without removing the integration. |
+| **Options flow fixed for modern Home Assistant** | Opening *Configure* raised a 500 on newer releases. |
+| **No more `HTTP 400` when idle** | The courier image entity fell back to a Wikipedia placeholder URL that rejects Home Assistant's requests, logging an error on every poll with no active order. |
+| **Dropped the unused `requests` dependency** | The integration is fully `aiohttp`-based; `requests` was declared but never used. |
+| **Single cookie instead of two** | The second-cookie failover never worked as intended and doubled the setup burden. |
+
+## Requirements
+
+**Home Assistant 2024.12 or newer.** The options flow relies on the framework-provided
+`OptionsFlow.config_entry` property, which does not exist before 2024.12 — on older
+releases the integration installs but *Configure* raises `AttributeError`.
 
 ## Install
 
-You can install component with [HACS](https://hacs.xyz/) custom repo: HACS > Integrations > 3 dots (upper top corner) > Custom repositories > URL: `tsunglung/UberEats` > Category: Integration
+**Via HACS** — HACS → Integrations → ⋮ (top right) → Custom repositories →
+URL `kalijason/UberEats`, Category `Integration`. Then install and restart Home Assistant.
 
-Or manually copy `uber_eats` folder to `custom_components` folder in your config folder.
+**Manually** — copy `custom_components/uber_eats/` into the `custom_components/` folder
+of your Home Assistant config directory and restart.
 
-Then restart HA.
+## Setup
 
-# Setup
+### 1. Get your `sid` cookie
 
-You need to grab one cookie. If your get problem with https_result is 500, you need to get new cookie. (Temporary Solution, the cookie will be expirated after one month)
+The integration authenticates with the session cookie from your browser. It expires
+after roughly a month, and you will need to repeat this when it does.
 
-**1. Basic steps for grabbing**
+1. Open [ubereats.com](https://www.ubereats.com/) and sign in.
+2. Open developer tools — <kbd>F12</kbd>, or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd>
+   (<kbd>⌘</kbd>+<kbd>⌥</kbd>+<kbd>I</kbd> on macOS).
+3. Go to the **Application** tab → **Storage** → **Cookies** → `https://www.ubereats.com`.
+4. Find the cookie named **`sid`**. If several match, take the first.
+5. Copy the whole **Value** — a long string beginning `QA.` and ending `=`.
 
-1. Open the development tools (use Google chrome/Microsoft Edge) [Crtl+Shift+I / F12]
-2. Open the Application tab, find "Storage"
-3. Open the [Uber Eats Web site](https://www.ubereats.com/), Login your account.
-4. Search for "sid" (for me only one itemes shows up, choose the first one)
-5. copy the cookie like "QA....=" in the field "Value"  (mark with a mouse and copy to clipboard)
+Treat that string like a password. It grants access to your Uber Eats account.
 
-# Config
+### 2. Add the integration
 
-![grabbing](grabbing.png)
+1. **Settings → Devices & Services → Add Integration → Uber Eats**.
+   If it is not listed, refresh the page; if it is still missing, clear the browser cache.
+2. Enter your account name and the `sid` cookie. All fields are required.
 
-**2. Please use the config flow of Home Assistant**
+## When the cookie expires
 
+You will get a **Reconfigure** prompt on the integration card — open it and paste a fresh
+`sid`. Nothing needs removing or re-adding, and your entity IDs stay the same.
 
-1. With GUI. Configuration > Integration > Add Integration > Uber Eats
-   1. If the integration didn't show up in the list please REFRESH the page
-   2. If the integration is still not in the list, you need to clear the browser cache.
-2. Enter the account and cookie.
-3. All fields are Required.
+If you would rather do it manually: **Settings → Devices & Services → Uber Eats →
+Configure**.
 
-# Notice
-The cookie will expired after days. If you saw the https_result is 403, you need get the new cookie again.
-Then got to Configuration > Integration > Uber Eats > Options, enter the info of cookie.
+## Entities
 
-Buy me a Coffee
+| Entity | What it gives you |
+|---|---|
+| `sensor.uber_eats_<account>_orders` | Active order count, plus every parsed order attribute |
+| `binary_sensor.uber_eats_<account>_new_order` | Whether an order is currently active |
+| `device_tracker.uber_eats_<account>_courier` | The courier's live GPS position |
+| `image.uber_eats_<account>_courier` | The courier's photo |
+| `button.uber_eats_<account>_order` | Forces the next poll to actually hit the API |
 
-|  LINE Pay | LINE Bank | JKao Pay |
-| :------------: | :------------: | :------------: |
-| <img src="https://github.com/tsunglung/UberEats/blob/master/linepay.jpg" alt="Line Pay" height="200" width="200">  | <img src="https://github.com/tsunglung/UberEats/blob/master/linebank.jpg" alt="Line Bank" height="200" width="200">  | <img src="https://github.com/tsunglung/UberEats/blob/master/jkopay.jpg" alt="JKo Pay" height="200" width="200">  |
+## Licence
+
+MIT — see [LICENSE](LICENSE). Copyright © 2021 tsunglung.
